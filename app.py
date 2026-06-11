@@ -8,13 +8,13 @@ import streamlit as st
 from src.decoder.weather_parser import WeatherParser
 
 st.set_page_config(page_title="AviateGPT AI", layout="wide")
-st.title("✈️ AviateGPT AI")
-st.caption("Local AI METAR Decoder & Runway Wind Analyzer • Powered by Qwen2.5-Coder:14B")
+st.title("✈️ AviateGPT AI - RAG Enhanced METAR")
+st.caption("Human Readable METAR Decoder & Runway Wind Analyzer • Powered by Qwen2.5-Coder:14B")
 
 parser = WeatherParser()
 
 st.sidebar.markdown("### 🎛️ Flight Parameters")
-airport_code = st.sidebar.text_input("Airport Identifier (ICAO):", value="KSRC")
+airport_code = st.sidebar.text_input("Airport Identifier (ICAO):", value="")
 submit_button = st.sidebar.button("🛰️ Pull NOAA Data & Auto-Map Airfield", use_container_width=True)
 
 if submit_button:
