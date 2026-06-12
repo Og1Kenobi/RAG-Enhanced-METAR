@@ -8,7 +8,7 @@ class WeatherParser:
         self.airport_endpoint = "https://aviationweather.gov/api/data/airport"
         self.notam_endpoint = "https://aviationweather.gov/api/data/notam"
         self.airsigmet_endpoint = "https://aviationweather.gov/api/data/airsigmet"
-        self.ollama_url = "http://localhost:11434/api/generate"
+        self.ollama_url = "http://10.11.12.60/api/generate"
         self.model_name = "qwen2.5-coder:14b"
         self.runway_cache = {}
 
@@ -219,12 +219,11 @@ METAR: {raw_metar}"""
             angle_diff = math.radians(wind_dir - heading)
             headwind = wind_speed * math.cos(angle_diff)
             crosswind = abs(wind_speed * math.sin(angle_diff))
-            dir_name = re.search(r'(\d{1,2})', runway_id).group(1) if re.search(r'(\d{1,2})', runway_id) else runway_id
             directions.append({
                 "heading": heading,
                 "headwind": round(headwind, 1),
                 "crosswind": round(crosswind, 1),
-                "dir_name": dir_name
+                "dir_name": num
             })
 
         best = max(directions, key=lambda x: x["headwind"])
