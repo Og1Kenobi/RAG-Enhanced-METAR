@@ -15,7 +15,7 @@ parser = WeatherParser()
 
 st.sidebar.markdown("### 🎛️ Flight Parameters")
 airport_code = st.sidebar.text_input("Airport Identifier (ICAO):", value="")
-submit_button = st.sidebar.button("🛰️ Pull NOAA Data & Auto-Map Airfield", use_container_width=True)
+submit_button = st.sidebar.button("🛡️ Pull NOAA Data & Auto-Map Airfield", use_container_width=True)
 
 if submit_button:
     with st.spinner("Connecting to live NOAA database..."):
@@ -65,21 +65,24 @@ if submit_button:
                     spread = int(data.get("temp_c", 0)) - int(data.get("dew_c", 0))
                     st.metric(label="Spread", value=f"{spread}°C", delta="Fog Threat" if spread <= 2 else "Dry Air")
 
-                # Runway Report
-                st.markdown("### 🛬 Automated Runway Wind Component Report")
+                # Runway Report - Option A (both directions + Recommended column)
+                st.markdown("### 🛡️ Automated Runway Wind Component Report")
                 calculations = data.get("runway_report", [])
                 
                 if calculations:
-                    markdown_table = "| Runway | Best Direction | Headwind (KT) | Crosswind (KT) |\n"
-                    markdown_table += "|--------|----------------|---------------|----------------|\n"
+                    markdown_table = "| Runway | Direction | Headwind (KT) | Crosswind (KT) | Recommended |\n"
+                    markdown_table += "|--------|-----------|---------------|----------------|-------------|\n"
                     for item in calculations:
-                        best_dir = item.get("best_direction", "")
-                        markdown_table += f"| **{item.get('name', '')}** | {best_dir} | {item.get('headwind', 0)} | {item.get('crosswind', 0)} |\n"
+                        rec = "**Yes**" if item.get("is_best") else ""
+                        dir_display = f"**{item.get('direction', '')}**" if item.get("is_best") else item.get('direction', '')
+                        markdown_table += f"| {item.get('name', '')} | {dir_display} | {item.get('headwind', 0)} | {item.get('crosswind', 0)} | {rec} |\n"
                     st.markdown(markdown_table)
 
-                    best_rw = calculations[0]
-                    best_name = best_rw.get('best_direction', best_rw.get('name', ''))
-                    st.success(f"💡 **Favorable Runway: Runway {best_name}** with **{best_rw.get('headwind', 0)} KT headwind**")
+                    # Show clear recommendation
+                    best_items = [item for item in calculations if item.get("is_best")]
+                    if best_items:
+                        best = best_items[0]
+                        st.success(f"💡 **Recommended: Land on Runway {best.get('direction')}** with **{best.get('headwind', 0)} KT headwind**")
                 else:
                     st.warning("No runway data available for this airport.")
 
