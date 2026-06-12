@@ -65,20 +65,20 @@ if submit_button:
                     spread = int(data.get("temp_c", 0)) - int(data.get("dew_c", 0))
                     st.metric(label="Spread", value=f"{spread}°C", delta="Fog Threat" if spread <= 2 else "Dry Air")
 
-                # Runway Report - Option A (both directions + Recommended column)
+                # Runway Report - Clean individual landing directions
                 st.markdown("### 🛡️ Automated Runway Wind Component Report")
                 calculations = data.get("runway_report", [])
                 
                 if calculations:
-                    markdown_table = "| Runway | Direction | Headwind (KT) | Crosswind (KT) | Recommended |\n"
-                    markdown_table += "|--------|-----------|---------------|----------------|-------------|\n"
+                    markdown_table = "| Landing Direction | Headwind (KT) | Crosswind (KT) | Recommended |\n"
+                    markdown_table += "|--------------------|---------------|----------------|-------------|\n"
                     for item in calculations:
                         rec = "**Yes**" if item.get("is_best") else ""
                         dir_display = f"**{item.get('direction', '')}**" if item.get("is_best") else item.get('direction', '')
-                        markdown_table += f"| {item.get('name', '')} | {dir_display} | {item.get('headwind', 0)} | {item.get('crosswind', 0)} | {rec} |\n"
+                        markdown_table += f"| {dir_display} | {item.get('headwind', 0)} | {item.get('crosswind', 0)} | {rec} |\n"
                     st.markdown(markdown_table)
 
-                    # Show clear recommendation
+                    # Clear recommendation
                     best_items = [item for item in calculations if item.get("is_best")]
                     if best_items:
                         best = best_items[0]

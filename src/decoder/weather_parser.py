@@ -208,39 +208,38 @@ METAR: {raw_metar}"""
         except Exception as e:
             return f"Local AI briefing unavailable: {str(e)}"
 
-    def calculate_runway_wind(self, wind_dir: int, wind_speed: int, runway_id: str) -> list:
-        """Return wind components for ALL directions of a runway (e.g. both 18 and 36)."""
-        numbers = re.findall(r'(\d{1,2})', runway_id)
-        if not numbers:
-            return [{
-                "name": runway_id,
-                "direction": runway_id,
+    def calculate_individual_runway_wind(self, wind_dir: int, wind_speed: int, runway_direction: str) -> dict:
+        """Calculate wind components for one specific landing direction (e.g. '18C' or '36C')."""
+        match = re.search(r'(\d{1,2})', runway_direction)
+        if not match:
+            return {
+                "direction": runway_direction,
                 "headwind": 0.0,
                 "crosswind": 0.0,
                 "is_best": False
-            }]
+            }
 
-        results = []
-        for num in numbers:
-            heading = int(num) * 10
-            angle_diff = math.radians(wind_dir - heading)
-            headwind = wind_speed * math.cos(angle_diff)
-            crosswind = abs(wind_speed * math.sin(angle_diff))
+        heading = int(match.group(1)) * 10
+        angle_diff = math.radians(wind_dir - heading)
+        headwind = wind_speed * math.cos(angle_diff)
+        crosswind = abs(wind_speed * math.sin(angle_diff))
 
-            results.append({
-                "name": f"Runway {runway_id}",
-                "direction": num,
-                "headwind": round(headwind, 1),
-                "crosswind": round(crosswind, 1),
-                "is_best": False   # Will be set later
-            })
+        return {
+            "direction": runway_direction,
+            "headwind": round(headwind, 1),
+            "crosswind": round(crosswind, 1),
+            "is_best": False
+        }
 
-        # Mark the best direction
-        if results:
-            best = max(results, key=lambda x: x["headwind"])
-            best["is_best"] = True
-
-        return results
+    def get_all_landing_directions(self, runway_id: str) -> list:
+        """Split a runway identifier into individual landing directions.
+        Example: '18C/36C' -> ['18C', '36C']
+        Example: '09/27' -> ['09', '27']
+        """
+        if '/' in runway_id:
+            return [d.strip() for d in runway_id.split('/')]
+        else:
+            return [runway_id.strip()]
 
     def decode_metar(self, raw_metar: str) -> dict:
         try:
@@ -253,10 +252,19 @@ METAR: {raw_metar}"""
             runway_report = []
             for rwy_id in runways:
                 if rwy_id:
-                    directions = self.calculate_runway_wind(wind_dir, wind_speed, rwy_id)
-                    runway_report.extend(directions)
+                    directions = self.get_all_landing_directions(rwy_id)
+                    for direction in directions:
+                        calc = self.calculate_individual_runway_wind(wind_dir, wind_speed, direction)
+                        runway_report.append(calc)
             
-            # Sort so best directions come first
+            # Mark the best direction(s)
+            if runway_report:
+                max_headwind = max(item["headwind"] for item in runway_report)
+                for item in runway_report:
+                    if item["headwind"] == max_headwind:
+                        item["is_best"] = True
+            
+            # Sort: best first, then by headwind descending
             runway_report.sort(key=lambda x: (not x["is_best"], -x["headwind"]))
             data["runway_report"] = runway_report
             data["notams"] = self.fetch_notams(data.get("airport"))
