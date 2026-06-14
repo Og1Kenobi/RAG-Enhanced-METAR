@@ -1,0 +1,8 @@
+# AviateGPT AI - RAG Enhanced METAR
+# Minimal dependencies for local/offline aviation weather app
+
+streamlit>=1.38.0
+requests>=2.32.0
+
+# Optional: For better Ollama integration (recommended)
+ollama>=0.3.0
