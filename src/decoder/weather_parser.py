@@ -19,6 +19,21 @@ class WeatherParser:
                 return token
         return tokens[0] if tokens else "UNKNOWN"
 
+    def _normalize_runway_ids(self, runways):
+        normalized = []
+        for r in runways:
+            if isinstance(r, dict) and 'id' in r:
+                rid = r['id']
+            elif isinstance(r, str):
+                rid = r
+            else:
+                continue
+            if '/' in rid:
+                normalized.extend([x.strip() for x in rid.split('/')])
+            else:
+                normalized.append(rid.strip())
+        return [x for x in normalized if x]
+
     def fetch_live_metar(self, airport_icao: str) -> tuple[str, bool]:
         icao_clean = airport_icao.strip().upper()
         params = {"ids": icao_clean, "format": "raw"}
@@ -91,7 +106,6 @@ class WeatherParser:
             return []
 
     def decode_airsigmet(self, raw_text: str) -> str:
-        """Strict decoder to prevent hallucinations"""
         prompt = f"""You are an expert CFI. Decode this SIGMET or AIRMET into accurate plain English.
 
 STRICT RULES:
@@ -109,7 +123,7 @@ Plain English Summary:"""
             "model": self.model_name,
             "prompt": prompt,
             "stream": False,
-            "temperature": 0.0,      # Very low temperature
+            "temperature": 0.0,
             "top_p": 0.7
         }
         try:
@@ -121,14 +135,8 @@ Plain English Summary:"""
     def get_runways_for_airport(self, raw_metar: str) -> list:
         icao = self._extract_icao(raw_metar)
         airport_info = self.fetch_airport_info(icao)
-        runways = []
-        if isinstance(airport_info, dict):
-            for item in airport_info.get("runways", []):
-                if isinstance(item, dict) and "id" in item:
-                    runways.append(item["id"])
-                elif isinstance(item, str):
-                    runways.append(item)
-        return runways
+        raw_runways = airport_info.get("runways", [])
+        return self._normalize_runway_ids(raw_runways)
 
     def decode_metar_regex(self, raw_metar: str) -> dict:
         clean_text = raw_metar.strip().replace('$', '').replace('"', '')
