@@ -1,59 +1,72 @@
-# ✈️ AviateGPT AI
+# ✈️ AviateGPT AI - RAG Enhanced METAR
 
-**Local AI-Powered Aviation Weather Station**
+**Local LLM-Powered Aviation Weather Intelligence**
 
-A fully offline aviation weather tool built with Streamlit + Qwen2.5-Coder 14B that decodes METARs, calculates runway wind components, shows real-time NOTAMs, AIRMETs, and SIGMETs with plain English explanations.
-
----
-
-## Features
-
-- **Live METAR Decoding** (with expired METAR fallback)
-- **Smart Runway Wind Analysis** – Shows best landing direction + headwind/crosswind
-- **Real-time NOTAMs**
-- **AIRMETs & SIGMETs** with AI-powered plain English summaries
-- **Flight Rules (VFR/MVFR/IFR)** alerts
-- **Powered by local Ollama** (Qwen2.5-Coder:14B) – fully private, no cloud
+A privacy-focused aviation weather tool that fetches real-time data from FAA/NOAA sources and uses a local Ollama LLM to generate clear, pilot-friendly briefings.
 
 ---
 
-## Tech Stack
+## Current Capabilities
 
-- **Frontend**: Streamlit
-- **LLM**: Qwen2.5-Coder 14B (via Ollama)
-- **Data Sources**: FAA Aviation Weather (aviationweather.gov)
-- **Language**: Python
+- Live METAR fetching from official FAA sources
+- Advanced regex-based METAR decoding (wind, visibility, ceiling, temperature/dewpoint, altimeter, flight rules)
+- Real FAA airport runway data
+- Accurate headwind/crosswind calculations for each runway
+- Best landing runway recommendation
+- Retrieval of NOTAMs and AIRMETs/SIGMETs
+- Local AI Pilot Briefings via Ollama
 
 ---
 
-## How to Run
+## How It Works
 
-### 1. Start Ollama
-```powershell
-ollama run qwen2.5-coder:14b
-2. Start the App
-PowerShellcd E:\aviation_weather_decoder
-streamlit run app.py
-The app will open automatically in your browser at http://localhost:8501
+**Hybrid Deterministic + LLM Architecture:**
+
+1. **Data Retrieval**  
+   Pulls raw METARs, airport runway information, NOTAMs, and AIRMETs/SIGMETs directly from FAA `aviationweather.gov` APIs.
+
+2. **Deterministic Parsing Engine**  
+   Uses robust regex patterns and trigonometry for reliable extraction of weather parameters and precise runway wind component calculations.
+
+3. **Local LLM Augmentation**  
+   Sends targeted prompts to a locally running Ollama model to generate natural language pilot briefings and decode complex SIGMETs/AIRMETs.
+
+4. **Streamlit Interface**  
+   Clean, expandable dashboard designed for pilots.
+
+**Note:** Internet connection is **required** to fetch weather data. The LLM (Ollama) runs completely locally/offline after the model is downloaded.
+
+---
+
+## Model Support
+
+The app is **not limited** to any specific model. It was primarily tested with `qwen2.5-coder:14b`, but it works with **any model** you have in Ollama.
+
+To change the model, edit this line in `src/decoder/weather_parser.py`:
+
+```python
+self.model_name = "qwen2.5-coder:14b"   # ← Change to llama3.1:8b, mistral, phi3, gemma2, etc.
+
+Installation
+1. Install Ollama and pull a model
+Bashollama run qwen2.5-coder:14b
+2. Install the App
+Bashgit clone https://github.com/Og1Kenobi/RAG-Enhanced-METAR.git
+cd RAG-Enhanced-METAR
+
+pip install -r requirements.txt
+3. Run the Application
+Bashstreamlit run app.py
+Open your browser and go to http://localhost:8501
 
 Project Structure
-textaviation_weather_decoder/
-├── app.py                      # Main Streamlit app
+textRAG-Enhanced-METAR/
+├── app.py                    # Streamlit frontend
 ├── src/
 │   └── decoder/
-│       └── weather_parser.py   # Core logic, parsers, AI decoding
-├── .gitignore
+│       └── weather_parser.py # Core logic, parsing, runway analysis, LLM calls
+├── requirements.txt
 └── README.md
 
-Future Enhancements (Planned)
-
-TAF decoder
-Flight plan integration
-Saved airport favorites
-Graphical weather overlays
-More accurate AI briefings
-
-
-Author
-Jonathan Douglas (@Og1Kenobi)
-Built for real-world GA flying with local AI.
+Author: Jonathan Douglas (@Og1Kenobi)
+Built for real-world General Aviation use with emphasis on accuracy and privacy.
