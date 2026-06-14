@@ -8,7 +8,7 @@ class WeatherParser:
         self.airport_endpoint = "https://aviationweather.gov/api/data/airport"
         self.notam_endpoint = "https://aviationweather.gov/api/data/notam"
         self.airsigmet_endpoint = "https://aviationweather.gov/api/data/airsigmet"
-        self.ollama_url = "http://10.11.12.60/api/generate"
+        self.ollama_url = "http://10.11.12.60:11434/api/generate"
         self.model_name = "qwen2.5-coder:14b"
         self.runway_cache = {}
 
