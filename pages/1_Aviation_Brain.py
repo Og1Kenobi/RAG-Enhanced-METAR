@@ -3,13 +3,15 @@ import requests
 import sys
 from pathlib import Path
 
-# Dynamic paths
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 st.set_page_config(page_title="AviateGPT Brain", page_icon="🧠", layout="wide")
 st.title("🧠 AviateGPT - FAA Regs RAG")
 st.caption("Local RAG over FAR/AIM • Powered by Ollama")
+
+OLLAMA_URL = "http://10.11.12.60:11434/api/generate"
+MODEL_NAME = "llama3.1:8b"
 
 @st.cache_resource
 def get_brain():
@@ -23,7 +25,7 @@ def get_brain():
 
 embedder, collection = get_brain()
 
-def ask_reg_question(question):
+def ask_reg_question(question: str) -> str:
     try:
         query_embedding = embedder.encode([question])[0].tolist()
         results = collection.query(query_embeddings=[query_embedding], n_results=10)
@@ -32,9 +34,11 @@ def ask_reg_question(question):
                     for d, m in zip(results["documents"][0], results["metadatas"][0])]
         context = "\n\n".join(contexts)
 
-        prompt = f"""You are a strict CFI. Answer FAA questions accurately.
+        prompt = f"""You are a strict FAA regulations expert. Answer ONLY based on regulations. No opinions.
 
-For student pilot Class B questions, be balanced and quote relevant regulations when possible.
+For student pilot questions:
+- Quote the relevant 14 CFR sections when possible.
+- State exactly what is allowed or prohibited.
 
 Context:
 {context}
@@ -43,12 +47,8 @@ Question: {question}
 
 Answer:"""
 
-        # Dynamic Ollama URL from environment or default
-        ollama_url = "http://10.11.12.60:11435/api/generate"
-        model_name = "qwen2.5-coder:14b"
-
-        res = requests.post(ollama_url, json={
-            "model": model_name,
+        res = requests.post(OLLAMA_URL, json={
+            "model": MODEL_NAME,
             "prompt": prompt,
             "stream": False,
             "temperature": 0.0
