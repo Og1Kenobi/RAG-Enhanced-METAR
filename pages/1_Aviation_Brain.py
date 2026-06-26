@@ -3,44 +3,38 @@ import requests
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# Dynamic paths
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
 
 st.set_page_config(page_title="AviateGPT Brain", page_icon="🧠", layout="wide")
 st.title("🧠 AviateGPT - FAA Regs RAG")
-st.caption("Local RAG over FAR/AIM • Powered by Qwen2.5-Coder:14B (Ollama)")
+st.caption("Local RAG over FAR/AIM • Powered by Ollama")
 
-# Ollama settings - Updated for your server
-OLLAMA_URL = "http://10.11.12.60:11435/api/generate"
-MODEL_NAME = "qwen2.5-coder:14b"
-
-@st.cache_resource(show_spinner="Loading embeddings and vector DB...")
+@st.cache_resource
 def get_brain():
     from sentence_transformers import SentenceTransformer
     import chromadb
     embedder = SentenceTransformer("all-MiniLM-L6-v2", device="cpu")
-    
-    # Adjust path if needed
-    db_path = Path("../chroma_db").resolve()
-    chroma_client = chromadb.PersistentClient(path=str(db_path))
-    collection = chroma_client.get_collection("far_aim")
+    db_path = PROJECT_ROOT / "chroma_db"
+    client = chromadb.PersistentClient(path=str(db_path))
+    collection = client.get_collection("far_aim")
     return embedder, collection
 
 embedder, collection = get_brain()
 
-def ask_reg_question(question: str) -> str:
+def ask_reg_question(question):
     try:
-        # Retrieve relevant chunks
-        boosted = f"{question} Part 91 regulations inoperative equipment MEL"
-        query_embedding = embedder.encode([boosted])[0].tolist()
-        
+        query_embedding = embedder.encode([question])[0].tolist()
         results = collection.query(query_embeddings=[query_embedding], n_results=10)
         
         contexts = [f"[Source: {m['source']} Page {m['page']}]\n{d.strip()}" 
                     for d, m in zip(results["documents"][0], results["metadatas"][0])]
         context = "\n\n".join(contexts)
 
-        prompt = f"""You are an experienced CFI. Answer accurately using ONLY the FAA context below.
-Be practical for real-world Part 91 flying. Cite sources when helpful.
+        prompt = f"""You are a strict CFI. Answer FAA questions accurately.
+
+For student pilot Class B questions, be balanced and quote relevant regulations when possible.
 
 Context:
 {context}
@@ -49,21 +43,20 @@ Question: {question}
 
 Answer:"""
 
-        # Call Ollama (same as your METAR app)
-        payload = {
-            "model": MODEL_NAME,
+        # Dynamic Ollama URL from environment or default
+        ollama_url = "http://10.11.12.60:11435/api/generate"
+        model_name = "qwen2.5-coder:14b"
+
+        res = requests.post(ollama_url, json={
+            "model": model_name,
             "prompt": prompt,
             "stream": False,
-            "temperature": 0.0,
-            "top_p": 0.9
-        }
+            "temperature": 0.0
+        }, timeout=60)
         
-        res = requests.post(OLLAMA_URL, json=payload, timeout=60)
-        res.raise_for_status()
-        return res.json().get("response", "No response from Ollama.").strip()
-        
+        return res.json().get("response", "No response.").strip()
     except Exception as e:
-        return f"Error: {str(e)}\n\nMake sure Ollama is running and the model is loaded."
+        return f"Error: {str(e)}"
 
 # Chat UI
 if "brain_messages" not in st.session_state:
@@ -73,16 +66,14 @@ for msg in st.session_state.brain_messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-if prompt := st.chat_input("Ask about FAA regulations, Part 91, procedures..."):
+if prompt := st.chat_input("Ask about FAA regulations..."):
     st.session_state.brain_messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
     with st.chat_message("assistant"):
-        with st.spinner("Thinking with Qwen2.5-Coder..."):
+        with st.spinner("Consulting the regs..."):
             answer = ask_reg_question(prompt)
             st.markdown(answer)
     
     st.session_state.brain_messages.append({"role": "assistant", "content": answer})
-
-st.sidebar.info("✅ Using Ollama • Qwen2.5-Coder:14B")
