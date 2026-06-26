@@ -8,7 +8,7 @@ class WeatherParser:
         self.airport_endpoint = "https://aviationweather.gov/api/data/airport"
         self.notam_endpoint = "https://aviationweather.gov/api/data/notam"
         self.airsigmet_endpoint = "https://aviationweather.gov/api/data/airsigmet"
-        self.ollama_url = "http://10.11.12.60:11434/api/generate"
+        self.ollama_url = "http://10.11.12.60:11435/api/generate"
         self.model_name = "qwen2.5-coder:14b"
         self.runway_cache = {}
 
@@ -19,24 +19,36 @@ class WeatherParser:
                 return token
         return tokens[0] if tokens else "UNKNOWN"
 
+    def _normalize_runway_ids(self, runways):
+        normalized = []
+        for r in runways:
+            if isinstance(r, dict) and 'id' in r:
+                rid = r['id']
+            elif isinstance(r, str):
+                rid = r
+            else:
+                continue
+            if '/' in rid:
+                normalized.extend([x.strip() for x in rid.split('/')])
+            else:
+                normalized.append(rid.strip())
+        return [x for x in normalized if x]
+
     def fetch_live_metar(self, airport_icao: str) -> tuple[str, bool]:
         icao_clean = airport_icao.strip().upper()
         params = {"ids": icao_clean, "format": "raw"}
         try:
             response = requests.get(self.noaa_endpoint, params=params, timeout=10)
-            
             if response.status_code == 200 and response.text.strip():
                 raw_text = response.text.strip()
                 if len(raw_text) >= 5 and not raw_text.startswith("ERROR"):
                     return raw_text, True
-            
             params["hours"] = "3"
             response = requests.get(self.noaa_endpoint, params=params, timeout=10)
             if response.status_code == 200 and response.text.strip():
                 raw_text = response.text.strip()
                 if len(raw_text) >= 5:
                     return raw_text, False
-            
             return f"ERROR: No METAR data available for {icao_clean} in the last 3 hours.", False
         except Exception as e:
             return f"ERROR: NOAA Network issue: {str(e)}", False
@@ -54,81 +66,36 @@ class WeatherParser:
                 if isinstance(data, list) and len(data) > 0:
                     airport_info = data[0]
                     self.runway_cache[icao] = airport_info
-                    num = len(airport_info.get("runways", []))
-                    print(f"✅ Loaded {num} real runways for {icao}")
                     return airport_info
-        except Exception as e:
-            print(f"❌ Airport API error for {icao}: {e}")
-
+        except:
+            pass
         return {"runways": []}
-
-    def fetch_notams(self, icao: str) -> list:
-        icao = icao.upper().strip()
-        try:
-            params = {"ids": icao, "format": "json"}
-            response = requests.get(self.notam_endpoint, params=params, timeout=15)
-            if response.status_code == 200:
-                data = response.json()
-                if isinstance(data, list):
-                    return data[:10]
-                elif isinstance(data, dict) and "notams" in data:
-                    return data["notams"][:10]
-            return []
-        except Exception as e:
-            print(f"NOTAM fetch error for {icao}: {e}")
-            return []
-
-    def fetch_airmets_sigmets(self, icao: str) -> list:
-        try:
-            response = requests.get(self.airsigmet_endpoint, params={"format": "json"}, timeout=15)
-            if response.status_code == 200:
-                data = response.json()
-                if isinstance(data, list):
-                    return data[:12]
-            return []
-        except Exception as e:
-            print(f"AIRMET/SIGMET fetch error: {e}")
-            return []
-
-    def decode_airsigmet(self, raw_text: str) -> str:
-        """Strict decoder to prevent hallucinations"""
-        prompt = f"""You are an expert CFI. Decode this SIGMET or AIRMET into accurate plain English.
-
-STRICT RULES:
-- Only use locations and states mentioned in the text.
-- "MOV FROM 22020KT" = moving FROM 220° at 20 knots. Never say 220 knots.
-- Do not add extra states or locations.
-- Be short and clear.
-
-Raw Text:
-{raw_text}
-
-Plain English Summary:"""
-
-        payload = {
-            "model": self.model_name,
-            "prompt": prompt,
-            "stream": False,
-            "temperature": 0.0,      # Very low temperature
-            "top_p": 0.7
-        }
-        try:
-            res = requests.post(self.ollama_url, json=payload, timeout=40)
-            return res.json().get("response", "Unable to decode.").strip()
-        except Exception as e:
-            return f"AI decoding unavailable: {str(e)}"
 
     def get_runways_for_airport(self, raw_metar: str) -> list:
         icao = self._extract_icao(raw_metar)
         airport_info = self.fetch_airport_info(icao)
-        runways = []
-        if isinstance(airport_info, dict):
-            for item in airport_info.get("runways", []):
-                if isinstance(item, dict) and "id" in item:
-                    runways.append(item["id"])
-                elif isinstance(item, str):
-                    runways.append(item)
-        return runways
+        raw_runways = airport_info.get("runways", [])
+        return self._normalize_runway_ids(raw_runways)
+
+    def calculate_runway_wind(self, wind_dir: int, wind_speed: int, runway_id: str) -> dict:
+        try:
+            num_match = re.search(r'(\d{1,2})', runway_id)
+            if not num_match:
+                return {"direction": runway_id, "headwind": 0, "crosswind": 0, "is_best": False}
+            
+            rwy_heading = int(num_match.group(1)) * 10
+            diff = min(abs(wind_dir - rwy_heading), 360 - abs(wind_dir - rwy_heading))
+            headwind = round(wind_speed * math.cos(math.radians(diff)))
+            crosswind = round(abs(wind_speed * math.sin(math.radians(diff))))
+            
+            return {
+                "direction": runway_id,
+                "headwind": max(0, headwind),
+                "crosswind": crosswind,
+                "is_best": False
+            }
+        except:
+            return {"direction": runway_id, "headwind": 0, "crosswind": 0, "is_best": False}
 
     def decode_metar_regex(self, raw_metar: str) -> dict:
         clean_text = raw_metar.strip().replace('$', '').replace('"', '')
@@ -208,34 +175,6 @@ METAR: {raw_metar}"""
         except Exception as e:
             return f"Local AI briefing unavailable: {str(e)}"
 
-    def calculate_runway_wind(self, wind_dir: int, wind_speed: int, runway_id: str) -> dict:
-        numbers = re.findall(r'(\d{1,2})', runway_id)
-        if not numbers:
-            return {"name": runway_id, "headwind": 0.0, "crosswind": 0.0, "best_direction": runway_id}
-
-        directions = []
-        for num in numbers:
-            heading = int(num) * 10
-            angle_diff = math.radians(wind_dir - heading)
-            headwind = wind_speed * math.cos(angle_diff)
-            crosswind = abs(wind_speed * math.sin(angle_diff))
-            dir_name = re.search(r'(\d{1,2})', runway_id).group(1) if re.search(r'(\d{1,2})', runway_id) else runway_id
-            directions.append({
-                "heading": heading,
-                "headwind": round(headwind, 1),
-                "crosswind": round(crosswind, 1),
-                "dir_name": dir_name
-            })
-
-        best = max(directions, key=lambda x: x["headwind"])
-        
-        return {
-            "name": f"Runway {runway_id}",
-            "headwind": best["headwind"],
-            "crosswind": best["crosswind"],
-            "best_direction": best["dir_name"]
-        }
-
     def decode_metar(self, raw_metar: str) -> dict:
         try:
             data = self.decode_metar_regex(raw_metar)
@@ -245,18 +184,18 @@ METAR: {raw_metar}"""
             wind_speed = data.get("wind_speed", 0)
             
             runway_report = []
-            seen = set()
             for rwy_id in runways:
-                if rwy_id and rwy_id not in seen:
-                    seen.add(rwy_id)
-                    calc = self.calculate_runway_wind(wind_dir, wind_speed, rwy_id)
-                    runway_report.append(calc)
+                calc = self.calculate_runway_wind(wind_dir, wind_speed, rwy_id)
+                runway_report.append(calc)
+            
+            if runway_report:
+                best = max(runway_report, key=lambda x: x["headwind"])
+                best["is_best"] = True
             
             runway_report.sort(key=lambda x: x["headwind"], reverse=True)
             data["runway_report"] = runway_report
-            data["notams"] = self.fetch_notams(data.get("airport"))
-            data["airmets_sigmets"] = self.fetch_airmets_sigmets(data.get("airport"))
-            
+            data["notams"] = []
+            data["airmets_sigmets"] = []
             return data
         except Exception as e:
             return {"status": "Error", "message": str(e), "raw_feed": raw_metar}

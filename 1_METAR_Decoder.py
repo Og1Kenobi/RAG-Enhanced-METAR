@@ -13,10 +13,20 @@ st.caption("Human Readable METAR Decoder & Runway Wind Analyzer • Powered by Q
 
 parser = WeatherParser()
 
+# ==================== SIDEBAR ====================
 st.sidebar.markdown("### 🎛️ Flight Parameters")
 airport_code = st.sidebar.text_input("Airport Identifier (ICAO):", value="")
 submit_button = st.sidebar.button("🛡️ Pull NOAA Data & Auto-Map Airfield", use_container_width=True)
 
+# New: Aviation Brain Link
+st.sidebar.markdown("### 🔗 Additional Tools")
+if st.sidebar.button("🧠 Aviation Regs Brain (FAR/AIM RAG)", use_container_width=True):
+    st.switch_page("pages/1_Aviation_Brain.py")
+
+st.sidebar.markdown("---")
+st.sidebar.info("Local LLM • FAA Data • Privacy First")
+
+# ==================== MAIN APP ====================
 if submit_button:
     with st.spinner("Connecting to live NOAA database..."):
         raw_feed, is_current = parser.fetch_live_metar(airport_code)
@@ -65,7 +75,7 @@ if submit_button:
                     spread = int(data.get("temp_c", 0)) - int(data.get("dew_c", 0))
                     st.metric(label="Spread", value=f"{spread}°C", delta="Fog Threat" if spread <= 2 else "Dry Air")
 
-                # Runway Report - Clean individual landing directions
+                # Runway Report
                 st.markdown("### 🛡️ Automated Runway Wind Component Report")
                 calculations = data.get("runway_report", [])
                 
@@ -78,7 +88,6 @@ if submit_button:
                         markdown_table += f"| {dir_display} | {item.get('headwind', 0)} | {item.get('crosswind', 0)} | {rec} |\n"
                     st.markdown(markdown_table)
 
-                    # Clear recommendation
                     best_items = [item for item in calculations if item.get("is_best")]
                     if best_items:
                         best = best_items[0]
@@ -86,7 +95,7 @@ if submit_button:
                 else:
                     st.warning("No runway data available for this airport.")
 
-                # AIRMETs & SIGMETs (Human Language)
+                # AIRMETs & SIGMETs
                 st.markdown("### 🌩️ Active AIRMETs / SIGMETs (Decoded)")
                 airmets = data.get("airmets_sigmets", [])
                 if airmets:

@@ -1,0 +1,28 @@
+# Virtual Environment
+venv/
+__pycache__/
+*.pyc
+
+# Data & Database
+data/chroma_db/
+chroma_db/
+ingest_progress.json
+
+# Large files
+*.pdf
+*.gguf
+
+# Streamlit
+.streamlit/
+
+# Logs and temp
+*.log
+/tmp/
+*.tmp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment variables
+.env
