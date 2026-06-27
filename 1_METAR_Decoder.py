@@ -9,8 +9,7 @@ from src.decoder.weather_parser import WeatherParser
 
 st.set_page_config(page_title="AviateGPT AI", layout="wide")
 st.title("✈️ AviateGPT AI - RAG Enhanced METAR")
-st.caption("Human Readable METAR Decoder & Runway Wind Analyzer • Powered by Qwen2.5-Coder:14B")
-
+st.caption("Human Readable METAR Decoder & Runway Wind Analyzer • Running on a RAG system with llama3.18b")
 parser = WeatherParser()
 
 # ==================== SIDEBAR ====================
@@ -23,7 +22,7 @@ if st.sidebar.button("🧠 Aviation Regs Brain (FAR/AIM RAG)", use_container_wid
     st.switch_page("pages/1_Aviation_Brain.py")
 
 st.sidebar.markdown("---")
-st.sidebar.info("Local LLM • FAA Data • Privacy First")
+st.sidebar.info("Local LLM • FAA Data")
 
 # ==================== MAIN APP ====================
 if submit_button:
