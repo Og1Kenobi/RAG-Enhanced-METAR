@@ -110,9 +110,17 @@ class WeatherParser:
             pass
         return []
 
-    def decode_airsigmet(self, raw_text: str) -> list:
-        icao = self._extract_icao(raw_text)
-        return self.fetch_airsigmets(icao)
+    def fetch_notams(self, icao: str) -> list:
+        try:
+            params = {"ids": icao.upper(), "format": "json"}
+            response = requests.get(self.notam_endpoint, params=params, timeout=15)
+            if response.status_code == 200:
+                data = response.json()
+                if isinstance(data, list):
+                    return data
+        except Exception as e:
+            print(f"NOTAM fetch error: {e}")
+        return []
 
     def decode_airsigmet_plain_english(self, sigmets: list) -> str:
         if not sigmets:
@@ -278,7 +286,7 @@ Key decoded info:
 
 Create a **single, natural, concise paragraph** pilot briefing. 
 Start with wind, then visibility and sky conditions (include ceiling), mention temperature if relevant, altimeter, and any notable hazards or trends. 
-Use real pilot language. Be honest about the conditions (especially if IFR). Do not use informal slang like "VFR temperature"."""
+Use real pilot language. Be honest about the conditions (especially if IFR)."""
 
         payload = {"model": self.model_name, "prompt": prompt, "stream": False, "temperature": 0.3}
         
@@ -306,34 +314,8 @@ Use real pilot language. Be honest about the conditions (especially if IFR). Do 
             
             data["airmets_sigmets"] = self.fetch_airsigmets(icao)
             data["runway_report"] = runway_report
-            data["notams"] = []
+            data["notams"] = self.fetch_notams(icao)
             data["ai_briefing"] = self.fetch_ai_briefing(raw_metar, data)
             return data
         except Exception as e:
             return {"status": "Error", "message": str(e), "raw_feed": raw_metar}
-
-    def generate_detailed_briefing(self, decoded: dict) -> str:
-        wind_dir = decoded.get("wind_dir", 0)
-        wind_dir_str = f"From {wind_dir}°" if wind_dir else "Variable"
-        
-        return f"""**METAR Summary for {decoded['airport']}**
-Time: {decoded.get('time', 'N/A')}
-
-**Wind & Visibility**
-Wind: {wind_dir_str} at {decoded.get('wind_speed_kt')} knots ({decoded.get('wind_speed_mph')} mph)
-Visibility: {decoded.get('visibility', 'N/A')}
-
-**Sky Conditions**
-{decoded.get('clouds', 'Clear')}
-Ceiling: {decoded.get('ceiling_ft', 'Unlimited')} ft AGL
-
-**Atmosphere**
-Temperature: {decoded.get('temp_c')}°C ({decoded.get('temp_f')}°F)
-Dew point: {decoded.get('dew_c')}°C ({decoded.get('dew_f')}°F)
-Altimeter: {decoded.get('altimeter', 'N/A')} inHg
-Sea Level Pressure: {decoded.get('slp_hpa', 'N/A')} hPa
-Pressure Trend: {decoded.get('pressure_tendency', 'N/A')}
-Precipitation: {decoded.get('precip')}
-
-**Flight Rules**: {decoded.get('flight_rules', 'VFR')}
-"""

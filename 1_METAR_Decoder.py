@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+from datetime import datetime
 
 current_dir = Path(__file__).parent
 sys.path.insert(0, str(current_dir))
@@ -7,123 +8,131 @@ sys.path.insert(0, str(current_dir))
 import streamlit as st
 from src.decoder.weather_parser import WeatherParser
 
-st.set_page_config(page_title="AviateGPT AI", layout="wide")
-st.title("✈️ AviateGPT AI - RAG Enhanced METAR")
-st.caption("Human Readable METAR Decoder & Runway Wind Analyzer • Running on a RAG system with llama3.18b")
+st.set_page_config(page_title="AviateGPT AI", page_icon="✈️", layout="wide")
+
+st.markdown("""
+<style>
+    .stApp { background: linear-gradient(135deg, #f8fafc 0%, #e0f2fe 100%); }
+    .main .block-container { padding-top: 2rem; }
+    h1, h2, h3 { color: #1e40af; }
+    .stButton>button { background: linear-gradient(90deg, #2563eb, #3b82f6); color: white; border-radius: 12px; font-weight: 600; }
+</style>
+""", unsafe_allow_html=True)
+
+st.title("✈️ AviateGPT AI")
+st.caption("**RAG-Enhanced METAR Decoder** • Live FAA Data")
+
 parser = WeatherParser()
 
-# ==================== SIDEBAR ====================
-st.sidebar.markdown("### 🎛️ Flight Parameters")
-airport_code = st.sidebar.text_input("Airport Identifier (ICAO):", value="")
-submit_button = st.sidebar.button("🛡️ Pull NOAA Data & Auto-Map Airfield", use_container_width=True)
+with st.sidebar:
+    st.header("Flight Parameters")
+    airport_code = st.text_input("ICAO Airport Code", value="KXNA")
+    submit_button = st.button("Pull NOAA Data & Analyze", type="primary", use_container_width=True)
 
-st.sidebar.markdown("### 🔗 Additional Tools")
-if st.sidebar.button("🧠 Aviation Regs Brain (FAR/AIM RAG)", use_container_width=True):
-    st.switch_page("pages/1_Aviation_Brain.py")
+    st.divider()
+    if st.button("🧠 Aviation Regulations Brain (FAR/AIM)", use_container_width=True):
+        st.switch_page("pages/1_Aviation_Brain.py")
+    st.caption("Local LLM • Live FAA Sources")
 
-st.sidebar.markdown("---")
-st.sidebar.info("Local LLM • FAA Data")
+if submit_button and airport_code:
+    with st.spinner("Fetching live METAR + NOTAMs..."):
+        raw_feed, is_current = parser.fetch_live_metar(airport_code)
 
-# ==================== MAIN APP ====================
-if submit_button:
-    if not airport_code:
-        st.warning("Please enter an ICAO code")
+    if "ERROR" in raw_feed:
+        st.error(raw_feed)
     else:
-        with st.spinner("Connecting to live NOAA database..."):
-            raw_feed, is_current = parser.fetch_live_metar(airport_code)
-           
-            if "ERROR" in raw_feed:
-                st.error(raw_feed)
-            else:
-                data = parser.decode_metar(raw_feed)
-                data["is_current"] = is_current
-                
-                if data.get("status") == "Error":
-                    st.error(data.get("message"))
-                else:
-                    if not is_current:
-                        st.warning("⚠️ **Showing most recent available METAR** (may be expired / outdated)")
+        data = parser.decode_metar(raw_feed)
+        data["is_current"] = is_current
 
-                    st.markdown("### 📡 Current Raw NOAA Stream")
+        if data.get("status") == "Error":
+            st.error(data.get("message"))
+        else:
+            if not is_current:
+                st.warning("⚠️ Using most recent available METAR (may be outdated)")
+
+            tab1, tab2, tab3, tab4 = st.tabs(["📡 Current Conditions", "🛫 Runway Analysis", "🌩️ AIRMETs/SIGMETs", "⚠️ NOTAMs"])
+
+            with tab1:
+                col1, col2 = st.columns([1, 2])
+                with col1:
+                    st.subheader("Raw METAR")
                     st.code(data.get("raw_feed"), language="text")
-                    
-                    with st.spinner("Generating AI Pilot Briefing..."):
+
+                with col2:
+                    with st.spinner("Generating briefing..."):
                         briefing = parser.fetch_ai_briefing(data.get("raw_feed"))
-                    st.info(f"**Pilot Briefing:** {briefing}")
+                    st.subheader("Pilot Briefing")
+                    st.markdown(briefing)
 
-                    rules = data.get("flight_rules", "VFR")
-                    if rules == "IFR":
-                        st.error(f"❌ METEOROLOGICAL ALERT: AIRSPACE RESTRICTED TO INSTRUMENT FLIGHT ({rules})")
-                    elif rules == "MVFR":
-                        st.warning(f"⚠️ MARGINAL VISUAL FLIGHT CONDITIONS IN EFFECT ({rules})")
-                    else:
-                        st.success(f"✅ AIRSPACE OPEN: VISUAL FLIGHT CONDITIONS ACTIVE ({rules})")
+                rules = data.get("flight_rules", "VFR")
+                if rules == "IFR":
+                    st.error(f"❌ IFR Conditions ({rules})")
+                elif rules == "MVFR":
+                    st.warning(f"⚠️ Marginal VFR ({rules})")
+                else:
+                    st.success(f"✅ VFR Active ({rules})")
 
-                    col1, col2, col3, col4 = st.columns(4)
-                    with col1:
-                        st.metric(label="Station", value=data.get("airport", airport_code).upper())
-                        wind_kt = data.get('wind_speed_kt', 0)
-                        wind_mph = data.get('wind_speed_mph', 0)
-                        wind_str = f"{data.get('wind_dir')}° @ {wind_kt} KT ({wind_mph} mph)"
-                        if data.get('wind_gust_kt'):
-                            wind_str += f" G{data.get('wind_gust_kt')}KT"
-                        st.metric(label="Surface Winds", value=wind_str)
-                    with col2:
-                        st.metric(label="Visibility", value=data.get("visibility"))
-                        st.metric(label="Cloud Ceiling", value=f"{data.get('ceiling_ft', 99999):,} FT ({data.get('clouds')})")
-                    with col3:
-                        st.metric(label="Temp / Dewpoint", value=f"{data.get('temp_c')}°C / {data.get('dew_c')}°C")
-                        st.metric(label="Altimeter Settings", value=f"{data.get('altimeter')} inHg")
-                    with col4:
-                        spread = int(data.get("temp_c", 0)) - int(data.get("dew_c", 0))
-                        st.metric(label="Spread", value=f"{spread}°C", delta="Fog Threat" if spread <= 2 else "Dry Air")
+                c1, c2, c3, c4 = st.columns(4)
+                with c1:
+                    st.metric("Station", data.get("airport", airport_code).upper())
+                    wind_str = f"{data.get('wind_dir')}° @ {data.get('wind_speed_kt', 0)} KT"
+                    if data.get('wind_gust_kt'): wind_str += f" G{data.get('wind_gust_kt')}KT"
+                    st.metric("Surface Winds", wind_str)
+                with c2:
+                    st.metric("Visibility", data.get("visibility"))
+                    st.metric("Ceiling", f"{data.get('ceiling_ft', '---'):,} ft")
+                with c3:
+                    st.metric("Temperature", f"{data.get('temp_c')}°C")
+                    st.metric("Dewpoint", f"{data.get('dew_c')}°C")
+                with c4:
+                    spread = int(data.get("temp_c", 0)) - int(data.get("dew_c", 0))
+                    st.metric("Temp Spread", f"{spread}°C")
 
-                    # Runway Report
-                    st.markdown("### 🛡️ Automated Runway Wind Component Report")
-                    calculations = data.get("runway_report", [])
-                    if calculations:
-                        markdown_table = "| Landing Direction | Headwind (KT) | Crosswind (KT) | Recommended |\n"
-                        markdown_table += "|--------------------|---------------|----------------|-------------|\n"
-                        for item in calculations:
-                            rec = "**Yes**" if item.get("is_best") else ""
-                            dir_display = f"**{item.get('direction', '')}**" if item.get("is_best") else item.get('direction', '')
-                            markdown_table += f"| {dir_display} | {item.get('headwind', 0)} | {item.get('crosswind', 0)} | {rec} |\n"
-                        st.markdown(markdown_table)
+            with tab2:
+                st.subheader("🛫 Runway Wind Analysis")
+                calculations = data.get("runway_report", [])
+                if calculations:
+                    table_data = []
+                    for item in calculations:
+                        table_data.append({
+                            "Runway": item.get('direction'),
+                            "Headwind": f"{item.get('headwind', 0)} KT",
+                            "Crosswind": f"{item.get('crosswind', 0)} KT",
+                            "Best": "✅ Recommended" if item.get("is_best") else ""
+                        })
+                    st.dataframe(table_data, use_container_width=True, hide_index=True)
+                    
+                    best = next((item for item in calculations if item.get("is_best")), None)
+                    if best:
+                        st.success(f"**Recommended: Runway {best.get('direction')}** — {best.get('headwind', 0)} KT headwind")
+                else:
+                    st.warning("No runway data available.")
 
-                        best_items = [item for item in calculations if item.get("is_best")]
-                        if best_items:
-                            best = best_items[0]
-                            st.success(f"💡 **Recommended: Land on Runway {best.get('direction')}** with **{best.get('headwind', 0)} KT headwind**")
-                    else:
-                        st.warning("No runway data available for this airport.")
+            with tab3:
+                st.subheader("Active AIRMETs / SIGMETs")
+                airmets = data.get("airmets_sigmets", [])
+                if airmets:
+                    for item in airmets:
+                        with st.expander(f"{item.get('airSigmetType')} — {item.get('hazard')}"):
+                            st.code(item.get("rawAirSigmet"))
+                            st.info(parser.decode_airsigmet_plain_english([item]))
+                else:
+                    st.success("No active advisories")
 
-                    # SIGMETs
-                    st.markdown("### 🌩️ Active AIRMETs / SIGMETs (Decoded)")
-                    airmets = data.get("airmets_sigmets", [])
-                    if airmets:
-                        for i, item in enumerate(airmets[:8]):
-                            title = f"{item.get('airSigmetType', 'ADVISORY')} — {item.get('hazard', 'Hazard')} {item.get('seriesId', '')}"
-                            with st.expander(f"🌩️ {title}"):
-                                st.write("**Raw:**")
-                                st.code(item.get("rawAirSigmet", str(item)), language="text")
-                                st.write("**Plain English Summary:**")
-                                plain_summary = parser.decode_airsigmet_plain_english([item])
-                                st.info(plain_summary)
-                    else:
-                        st.success("✅ No active AIRMETs or SIGMETs affecting this area.")
+            with tab4:
+                st.subheader("⚠️ Active NOTAMs")
+                notams = data.get("notams", [])
+                if notams:
+                    for notam in notams:
+                        with st.expander(notam.get("notam_id", "NOTAM")):
+                            st.code(notam.get("raw_text"))
+                else:
+                    st.info("No active NOTAMs for this airport at this time.")
 
-                    # NOTAMs
-                    st.markdown("### ⚠️ Active NOTAMs")
-                    notams = data.get("notams", [])
-                    if notams:
-                        for i, notam in enumerate(notams[:10]):
-                            title = notam.get("notam_id", f"NOTAM #{i+1}")
-                            with st.expander(f"⚠️ {title}"):
-                                st.code(notam.get("raw_text", str(notam)), language="text")
-                    else:
-                        st.success("✅ No active NOTAMs reported for this airport.")
+            with st.expander("Full JSON Data"):
+                st.json(data)
 
-                    with st.expander("View Full JSON Telemetry"):
-                        st.json(data)
 else:
-    st.info("Enter an ICAO code and click the button to fetch weather.")
+    st.info("Enter ICAO code (KXNA) and click the button.")
+
+st.caption(f"Last updated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}")
