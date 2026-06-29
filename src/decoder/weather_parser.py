@@ -1,3 +1,9 @@
+# src/decoder/weather_parser.py
+"""
+Weather Parser for RAG-Enhanced METAR AviateGPT
+Handles METAR, TAF, AIRSIGMET decoding with robust error handling.
+"""
+
 import requests
 import re
 import math
@@ -83,12 +89,12 @@ class WeatherParser:
             num_match = re.search(r'(\d{1,2})', runway_id)
             if not num_match:
                 return {"direction": runway_id, "headwind": 0, "crosswind": 0, "is_best": False}
-            
+
             rwy_heading = int(num_match.group(1)) * 10
             diff = min(abs(wind_dir - rwy_heading), 360 - abs(wind_dir - rwy_heading))
             headwind = round(wind_speed * math.cos(math.radians(diff)))
             crosswind = round(abs(wind_speed * math.sin(math.radians(diff))))
-            
+
             return {
                 "direction": runway_id,
                 "headwind": max(0, headwind),
@@ -112,32 +118,42 @@ class WeatherParser:
 
     def fetch_notams(self, icao: str) -> list:
         try:
-            params = {"ids": icao.upper(), "format": "json"}
-            response = requests.get(self.notam_endpoint, params=params, timeout=15)
-            if response.status_code == 200:
-                data = response.json()
-                if isinstance(data, list):
-                    return data
+            url = f"https://nms.aim.faa.gov/notamSearch/nsapp.html#/?search={icao.upper()}"
+            return [{
+                "notam_id": "FAA-NMS",
+                "raw_text": f"View current NOTAMs for {icao} here: https://nms.aim.faa.gov/notamSearch/nsapp.html#/?search={icao.upper()}"
+            }]
         except Exception as e:
             print(f"NOTAM fetch error: {e}")
         return []
 
     def decode_airsigmet_plain_english(self, sigmets: list) -> str:
+        """Fixed version with safe numeric formatting."""
         if not sigmets:
             return "No active AIRMETs or SIGMETs."
 
         lines = ["🌩️ **Active Convective SIGMETs:**\n"]
-        
+
         for sig in sigmets:
             series = sig.get('seriesId', 'Unknown')
             tops = sig.get('altitudeHi1', 'Unknown')
-            dir = sig.get('movementDir')
+            dir_val = sig.get('movementDir')
             spd = sig.get('movementSpd')
-            movement = f" moving from {dir}° at {spd} kt" if dir and spd else " (stationary or slow)"
+            movement = f" moving from {dir_val}° at {spd} kt" if dir_val and spd else " (stationary or slow)"
 
             lines.append(f"**SIGMET {series}**")
             lines.append(f"• Severe Thunderstorms")
-            lines.append(f"• Tops up to {tops:,} ft")
+            
+            # FIXED: Safe tops formatting
+            if tops is not None and tops != 'Unknown':
+                try:
+                    tops_val = int(float(tops))
+                    lines.append(f"• Tops up to {tops_val:,} ft")
+                except (ValueError, TypeError):
+                    lines.append(f"• Tops: {tops}")
+            else:
+                lines.append("• Tops: Unknown")
+            
             lines.append(f"•{movement}")
             lines.append(f"• Valid until {sig.get('validTimeTo', 'Unknown')}")
             lines.append("")
@@ -146,7 +162,7 @@ class WeatherParser:
 
     def decode_metar_regex(self, raw_metar: str) -> dict:
         clean_text = raw_metar.strip().replace('$', '').replace('"', '')
-       
+
         output = {
             "airport": self._extract_icao(raw_metar),
             "time": "",
@@ -171,7 +187,7 @@ class WeatherParser:
             "status": "Success",
             "remarks": ""
         }
-        
+
         time_match = re.search(r'\b(\d{6}Z)\b', clean_text)
         if time_match:
             output["time"] = time_match.group(1)
@@ -254,7 +270,7 @@ class WeatherParser:
         if vis_digits:
             try: vis_num = float(vis_digits)
             except: pass
-                
+
         if output["ceiling_ft"] < 1000 or vis_num < 3.0:
             output["flight_rules"] = "IFR"
         elif output["ceiling_ft"] <= 3000 or vis_num <= 5.0:
@@ -265,11 +281,11 @@ class WeatherParser:
     def fetch_ai_briefing(self, raw_metar: str, decoded: dict = None) -> str:
         if decoded is None:
             decoded = self.decode_metar_regex(raw_metar)
-        
+
         current_time = datetime.now().strftime("%H:%M")
         hour = int(current_time.split(':')[0])
         greeting = "Good afternoon" if 12 <= hour < 17 else "Good evening" if hour >= 17 else "Good morning"
-        
+
         prompt = f"""You are giving a professional, concise pilot briefing. {greeting}, pilots. Current time is {current_time}.
 
 METAR: {raw_metar}
@@ -284,12 +300,12 @@ Key decoded info:
 - Altimeter: {decoded.get('altimeter')} inHg
 - Flight Rules: {decoded.get('flight_rules', 'VFR')}
 
-Create a **single, natural, concise paragraph** pilot briefing. 
-Start with wind, then visibility and sky conditions (include ceiling), mention temperature if relevant, altimeter, and any notable hazards or trends. 
+Create a **single, natural, concise paragraph** pilot briefing.
+Start with wind, then visibility and sky conditions (include ceiling), mention temperature if relevant, altimeter, and any notable hazards or trends.
 Use real pilot language. Be honest about the conditions (especially if IFR)."""
 
         payload = {"model": self.model_name, "prompt": prompt, "stream": False, "temperature": 0.3}
-        
+
         try:
             res = requests.post(self.ollama_url, json=payload, timeout=25)
             return res.json().get("response", "Briefing unavailable.").strip()
@@ -300,18 +316,18 @@ Use real pilot language. Be honest about the conditions (especially if IFR)."""
         try:
             data = self.decode_metar_regex(raw_metar)
             icao = data["airport"]
-            
+
             runways = self.get_runways_for_airport(raw_metar)
             wind_dir = data.get("wind_dir", 0)
             wind_speed = data.get("wind_speed_kt", 0)
-            
+
             runway_report = [self.calculate_runway_wind(wind_dir, wind_speed, rwy_id) for rwy_id in runways]
-            
+
             if runway_report:
                 best = max(runway_report, key=lambda x: x["headwind"])
                 best["is_best"] = True
             runway_report.sort(key=lambda x: x["headwind"], reverse=True)
-            
+
             data["airmets_sigmets"] = self.fetch_airsigmets(icao)
             data["runway_report"] = runway_report
             data["notams"] = self.fetch_notams(icao)

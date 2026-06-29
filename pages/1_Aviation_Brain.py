@@ -10,83 +10,89 @@ st.set_page_config(page_title="AviateGPT Brain", page_icon="🧠", layout="wide"
 st.title("🧠 AviateGPT - FAA Regs RAG")
 st.caption("Local FAR/AIM + General Aircraft Lookup")
 
-OLLAMA_URL = "http://10.11.12"
+OLLAMA_URL = "http://10.11.12.60:11434/api/generate"
 MODEL_NAME = "llama3.1:8b"
 
-@st.cache_resource(show_spinner=False)
+# Global resources
+embedder = None
+regs_collection = None
+aircraft_collection = None
+
+@st.cache_resource(show_spinner=True)
 def get_brain():
     with st.spinner("☕ Waking up the Aviation Brain..."):
         from sentence_transformers import SentenceTransformer
         import chromadb
         
-        # Enforce CPU operation for consistency with your existing scripts
-        embedder = SentenceTransformer("all-MiniLM-L6-v2", device="cpu")
+        # Match ingestion model
+        local_embedder = SentenceTransformer("BAAI/bge-large-en-v1.5", device="cpu")
+        
         db_path = PROJECT_ROOT / "chroma_db"
         client = chromadb.PersistentClient(path=str(db_path))
         
-        # Open both database collection layers safely
-        regs_collection = client.get_or_create_collection("far_aim")
-        aircraft_collection = client.get_or_create_collection("aircraft_specs")
+        local_regs = client.get_or_create_collection("far_aim")
+        local_aircraft = client.get_or_create_collection("aircraft_specs")
         
-        return embedder, regs_collection, aircraft_collection
+        return local_embedder, local_regs, local_aircraft
 
-# Load and unpack the multi-layer workspace database resources
+# Load resources once
 embedder, regs_collection, aircraft_collection = get_brain()
 
+def flatten_embedding(emb):
+    if isinstance(emb, list):
+        while isinstance(emb, list) and len(emb) == 1:
+            emb = emb[0]
+        if isinstance(emb, list) and len(emb) > 0 and isinstance(emb[0], list):
+            emb = [item for sublist in emb for item in sublist]
+    return emb
+
 def web_aircraft_lookup(question: str) -> str:
-    """Queries the local FAA registry database to pull physical airframe traits."""
     try:
-        query_embedding = embedder.encode([question]).tolist()
+        query_embedding = embedder.encode([question]).tolist()[0]
+        query_embedding = flatten_embedding(query_embedding)
         
-        # Search the aircraft_specs database for the single best row match
         aircraft_results = aircraft_collection.query(
             query_embeddings=[query_embedding],
             n_results=1,
             include=["documents"]
         )
         
-        # Extract the document string safely out of ChromaDB's nested array format
         if aircraft_results and "documents" in aircraft_results and aircraft_results["documents"]:
             first_match_list = aircraft_results["documents"][0]
             if first_match_list:
                 return str(first_match_list[0]).strip()
-                
-        return "No specific aircraft design features found in local database references."
+        return "No specific aircraft design features found."
     except Exception as e:
         return f"Aircraft data layer offline: {str(e)}"
 
 def ask_reg_question(question: str) -> str:
     try:
-        query_embedding = embedder.encode([question]).tolist()
+        raw_emb = embedder.encode([question]).tolist()[0]
+        query_embedding = flatten_embedding(raw_emb)
         
-        # Step 1: Resolve the exact plane configuration traits from your indexed registry rows
         aircraft_context = web_aircraft_lookup(question)
         
-        # Step 2: Extract relevant regulatory data fragments from your manuals collection
         results = regs_collection.query(
             query_embeddings=[query_embedding], 
-            n_results=5,  # Balanced chunk count to prevent local context dilution
+            n_results=8,
             include=["documents", "metadatas", "distances"]
         )
         
-        # Parse text chunks cleanly out of nested layout results arrays
-        contexts = [f"[Source: {m.get('source','Unknown')} p.{m.get('page','N/A')} | Distance: {d:.4f}]\n{doc.strip()}" 
+        contexts = [f"[Source: {m.get('source','Unknown')} | Page: {m.get('page','N/A')} | Dist: {d:.4f}]\n{doc.strip()}" 
                     for doc, m, d in zip(results["documents"][0], results["metadatas"][0], results["distances"][0])]
         context_str = "\n\n---\n\n".join(contexts)
 
-        # Step 3: Map the physical specifications directly against the legal text chunks
-        prompt = f"""You are a strict FAA regulations expert. 
-Your job is to determine the pilot requirements for the aircraft using ONLY the provided physical characteristics and the Regulatory Context block.
+        prompt = f"""You are an expert FAA regulations specialist with access to the full set of FAA documents.
 
-Aircraft Configuration (retrieved from FAA Registry):
+Aircraft details:
 {aircraft_context}
 
-Regulatory Context from database:
+Relevant regulatory context:
 {context_str}
 
 Question: {question}
 
-Answer:"""
+Answer accurately, cite sources when possible, and distinguish solo vs certificate age requirements."""
 
         res = requests.post(OLLAMA_URL, json={
             "model": MODEL_NAME,
@@ -100,7 +106,7 @@ Answer:"""
     except Exception as e:
         return f"**Error executing pipeline:** {str(e)}"
 
-# Chat User Interface Controller
+# Chat UI
 if "brain_messages" not in st.session_state:
     st.session_state.brain_messages = []
 
@@ -114,7 +120,7 @@ if prompt := st.chat_input("Ask about FAA regulations..."):
         st.markdown(prompt)
 
     with st.chat_message("assistant"):
-        with st.spinner("🛫 Looking up aircraft + consulting regs..."):
+        with st.spinner("🛫 Consulting full FAA regs..."):
             answer = ask_reg_question(prompt)
             st.markdown(answer)
     
